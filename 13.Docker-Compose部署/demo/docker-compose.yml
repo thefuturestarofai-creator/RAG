@@ -1,0 +1,81 @@
+# ============================================================
+# RAG 知识库问答系统 - Docker Compose 配置
+# ============================================================
+#
+# 使用方法:
+#   启动:     docker-compose up -d
+#   停止:     docker-compose down
+#   查看日志: docker-compose logs -f rag-app
+#   重新构建: docker-compose up -d --build
+#   查看状态: docker-compose ps
+#
+# ============================================================
+
+version: "3.8"
+
+services:
+  # ---- RAG 应用服务 ----
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-app
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-3.5-turbo}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+  # ---- ChromaDB 向量数据库 ----
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+# ---- 数据卷定义 ----
+volumes:
+  chroma_data:
+    driver: local

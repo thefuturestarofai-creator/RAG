@@ -1,0 +1,96 @@
+# RAG 系统 Docker Compose 配置
+# =============================
+#
+# 启动命令：docker-compose up -d
+# 停止命令：docker-compose down
+# 查看状态：docker-compose ps
+# 查看日志：docker-compose logs -f api
+
+version: '3.8'
+
+services:
+  # ====== API 服务 ======
+  api:
+    # 从当前目录的 Dockerfile 构建
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # 容器名称
+    container_name: rag-api
+
+    # 端口映射：宿主机端口:容器端口
+    ports:
+      - "8000:8000"
+
+    # 环境变量
+    environment:
+      - API_KEY=${API_KEY}              # 从 .env 文件读取
+      - BASE_URL=${BASE_URL}
+      - MODEL=${MODEL}
+      - CHROMA_HOST=chroma              # Chroma 服务名（Docker 内部网络）
+      - CHROMA_PORT=8000
+
+    # 数据卷挂载
+    volumes:
+      - ./app:/app/app                  # 挂载代码目录（开发环境热更新）
+      - ./data:/app/data                # 挂载数据目录
+
+    # 依赖的服务（先启动 chroma）
+    depends_on:
+      chroma:
+        condition: service_healthy      # 等待 Chroma 健康检查通过
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 网络
+    networks:
+      - rag-network
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ====== Chroma 向量数据库 ======
+  chroma:
+    # 使用官方镜像
+    image: chromadb/chroma:latest
+
+    # 容器名称
+    container_name: rag-chroma
+
+    # 端口映射
+    ports:
+      - "8001:8000"                     # 宿主机 8001 -> 容器 8000
+
+    # 数据卷（持久化向量数据）
+    volumes:
+      - chroma_data:/chroma/chroma      # 命名卷
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 网络
+    networks:
+      - rag-network
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ====== 网络定义 ======
+networks:
+  rag-network:
+    driver: bridge                      # 桥接网络
+
+# ====== 命名卷定义 ======
+volumes:
+  chroma_data:
+    driver: local
